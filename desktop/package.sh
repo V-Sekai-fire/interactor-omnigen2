@@ -1,11 +1,12 @@
 #!/bin/sh
 # Build one desktop package of OmniGen2 + EditScore7B-v1.1, weights included (it runs offline).
 #   package.sh <osx-arm64|linux-64|win-64> <out-dir> <pixi-pack binary> <pixi-unpack binary for the target> <weights dir>
-# <weights dir> holds base/ (BF16, diffusers layout) and lora/pytorch_lora_weights.safetensors.
+# <weights dir> holds base/ (diffusers layout) and either lora/pytorch_lora_weights.safetensors (BF16)
+# or 4-bit weights from make_q4.py (LoRA merged in, base/transformer/q4.json, no lora/).
 # Result in <out-dir>: omnigen2-editscore-<os>.zip (or .tar for Linux), files at the top level.
 set -eu
 PLATFORM=$1; OUT=$2; PACK=$3; UNPACK=$4; WEIGHTS=$5
-[ -f "$WEIGHTS/base/model_index.json" ] && [ -f "$WEIGHTS/lora/pytorch_lora_weights.safetensors" ] || { echo "no weights in $WEIGHTS" >&2; exit 2; }
+[ -f "$WEIGHTS/base/model_index.json" ] && { [ -f "$WEIGHTS/lora/pytorch_lora_weights.safetensors" ] || [ -f "$WEIGHTS/base/transformer/q4.json" ]; } || { echo "no weights in $WEIGHTS" >&2; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 case $PLATFORM in
@@ -17,7 +18,7 @@ esac
 STAGE="$OUT/$NAME"
 rm -rf "$STAGE"; mkdir -p "$STAGE/app"
 "$PACK" "$HERE/pixi.toml" --use-cache "$OUT/.pack-cache" --platform "$PLATFORM" --output-file "$STAGE/environment.tar"
-cp "$HERE/omnigen2_edit.py" "$STAGE/app/"
+cp "$HERE/omnigen2_edit.py" "$HERE/quant4.py" "$STAGE/app/"
 # Inference code only: no training, data or optimiser modules.
 (cd "$REPO" && tar cf - --exclude='__pycache__' omnigen2/__init__.py omnigen2/models omnigen2/pipelines \
    omnigen2/schedulers omnigen2/utils omnigen2/ops omnigen2/cache_functions omnigen2/taylorseer_utils) | (cd "$STAGE/app" && tar xf -)
