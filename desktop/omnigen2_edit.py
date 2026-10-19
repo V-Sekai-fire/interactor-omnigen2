@@ -6,6 +6,8 @@ With --image and --prompt: edit one image and save it.
 Weights folder, part of the package (default: ``w`` next to the program, or env OMNIGEN2_WEIGHTS):
   w/base  OmniGen2 base model (diffusers layout)
   w/lora  pytorch_lora_weights.safetensors (OmniGen2-EditScore7B-v1.1)
+4-bit weights (made by make_q4.py) have no w/lora: the LoRA is merged in, and w/base/transformer
+and w/base/mllm hold q4.json and model.q4.safetensors (see quant4.py).
 """
 
 import argparse
@@ -54,6 +56,7 @@ def load(weights: Path, device, use_lora: bool = True):
     from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor
 
     import omnigen2.utils.import_utils as iu
+    import quant4
     iu._triton_available = False
     from omnigen2.models.transformers.transformer_omnigen2 import OmniGen2Transformer2DModel
     from omnigen2.pipelines.omnigen2.pipeline_omnigen2 import OmniGen2Pipeline
@@ -65,18 +68,40 @@ def load(weights: Path, device, use_lora: bool = True):
         sys.exit(f"Weights not found: {base}/model_index.json. The package holds them in the folder w.")
     dtype = torch.bfloat16
     t0 = time.time()
+    q4 = quant4.is_q4(base / "transformer")
+    if q4 and not use_lora:
+        sys.exit("These 4-bit weights hold the LoRA merged in; --no-lora needs the BF16 weights.")
     # The two custom components come from the bundled omnigen2 package, never from Python files
     # inside the weights folder (no trust_remote_code), so the weights folder runs no code.
-    transformer = OmniGen2Transformer2DModel.from_pretrained(str(base), subfolder="transformer", torch_dtype=dtype)
+    if q4:
+        # CUDA cards have room for BF16: unpack once, run at full speed. Elsewhere stay packed.
+        unpack = device.type == "cuda"
+
+        def empty_transformer():
+            with torch.device("meta"):
+                return OmniGen2Transformer2DModel.from_config(
+                    OmniGen2Transformer2DModel.load_config(str(base / "transformer"))).to(dtype)
+
+        def empty_mllm():
+            from transformers import AutoConfig
+            cfg = AutoConfig.from_pretrained(str(base / "mllm"))
+            with torch.device("meta"):
+                return Qwen2_5_VLForConditionalGeneration._from_config(cfg, torch_dtype=dtype)
+
+        transformer = quant4.load(empty_transformer, base / "transformer", device, unpack)
+        mllm = quant4.load(empty_mllm, base / "mllm", device, unpack)
+    else:
+        transformer = OmniGen2Transformer2DModel.from_pretrained(str(base), subfolder="transformer", torch_dtype=dtype)
+        mllm = Qwen2_5_VLForConditionalGeneration.from_pretrained(str(base), subfolder="mllm", torch_dtype=dtype)
     scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(str(base), subfolder="scheduler")
     pipe = OmniGen2Pipeline(
         transformer=transformer,
         vae=AutoencoderKL.from_pretrained(str(base), subfolder="vae", torch_dtype=dtype),
         scheduler=scheduler,
-        mllm=Qwen2_5_VLForConditionalGeneration.from_pretrained(str(base), subfolder="mllm", torch_dtype=dtype),
+        mllm=mllm,
         processor=Qwen2_5_VLProcessor.from_pretrained(str(base), subfolder="processor"),
     )
-    if use_lora:
+    if use_lora and not q4:
         if not lora.is_file():
             sys.exit(f"LoRA not found: {lora}")
         pipe.load_lora_weights(str(lora.parent), weight_name=lora.name)
