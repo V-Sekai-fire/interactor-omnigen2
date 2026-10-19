@@ -14,7 +14,7 @@ case $PLATFORM in
 esac
 STAGE="$OUT/$NAME"
 rm -rf "$STAGE"; mkdir -p "$STAGE/app"
-"$PACK" pack --manifest-path "$HERE/pixi.toml" --platform "$PLATFORM" --output-file "$STAGE/environment.tar"
+"$PACK" "$HERE/pixi.toml" --use-cache "$OUT/.pack-cache" --platform "$PLATFORM" --output-file "$STAGE/environment.tar"
 cp "$HERE/omnigen2_edit.py" "$STAGE/app/"
 # Inference code only: no training, data or optimiser modules.
 (cd "$REPO" && tar cf - --exclude='__pycache__' omnigen2/__init__.py omnigen2/models omnigen2/pipelines \
