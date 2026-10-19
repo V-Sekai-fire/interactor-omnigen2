@@ -33,6 +33,21 @@ def default_weights() -> Path:
     return HERE.parent / "w"
 
 
+BASE_REPO, BASE_REV = "chibifire/omnigen2-base-df5dca8a", "2fe5b082782a05530283d3ccc44225148c5e06bd"
+LORA_REPO, LORA_REV = "OmniGen2/OmniGen2-EditScore7B-v1.1", "a6a0a0035ab9561bcb12414d15e74aaadbd1c299"
+
+
+def download_weights(weights: Path):
+    os.environ["HF_HUB_OFFLINE"] = "0"
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(BASE_REPO, revision=BASE_REV, local_dir=weights / "base",
+                      ignore_patterns=["assets/*", "*.pyc", "*.py", "CITATION.cff", "README.md"])
+    snapshot_download(LORA_REPO, revision=LORA_REV, local_dir=weights / "lora",
+                      allow_patterns=["pytorch_lora_weights.safetensors"])
+    print(f"WEIGHTS-OK {weights}", flush=True)
+
+
 def pick_device(name: str):
     import torch
 
@@ -146,8 +161,13 @@ def main():
     ap.add_argument("--device", default="auto", help="auto, cuda, mps or cpu")
     ap.add_argument("--no-lora", action="store_true", help="base OmniGen2 only (for comparison)")
     ap.add_argument("--port", type=int, default=7860)
+    ap.add_argument("--download-weights", action="store_true",
+                    help="one time: download the pinned weights into --weights, then stop")
     a = ap.parse_args()
 
+    if a.download_weights:
+        download_weights(a.weights)
+        return
     device = pick_device(a.device)
     pipe = load(a.weights, device, use_lora=not a.no_lora)
     if a.image or a.prompt:
