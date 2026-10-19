@@ -1,9 +1,11 @@
 #!/bin/sh
-# Build one desktop package of OmniGen2 + EditScore7B-v1.1 (program only; the weights ship separately).
-#   package.sh <osx-arm64|linux-64|win-64> <out-dir> <pixi-pack binary> <pixi-unpack binary for the target>
+# Build one desktop package of OmniGen2 + EditScore7B-v1.1, weights included (it runs offline).
+#   package.sh <osx-arm64|linux-64|win-64> <out-dir> <pixi-pack binary> <pixi-unpack binary for the target> <weights dir>
+# <weights dir> holds base/ (BF16, diffusers layout) and lora/pytorch_lora_weights.safetensors.
 # Result in <out-dir>: omnigen2-editscore-<os>.zip (or .tar for Linux), files at the top level.
 set -eu
-PLATFORM=$1; OUT=$2; PACK=$3; UNPACK=$4
+PLATFORM=$1; OUT=$2; PACK=$3; UNPACK=$4; WEIGHTS=$5
+[ -f "$WEIGHTS/base/model_index.json" ] && [ -f "$WEIGHTS/lora/pytorch_lora_weights.safetensors" ] || { echo "no weights in $WEIGHTS" >&2; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 case $PLATFORM in
@@ -21,6 +23,7 @@ cp "$HERE/omnigen2_edit.py" "$STAGE/app/"
    omnigen2/schedulers omnigen2/utils omnigen2/ops omnigen2/cache_functions omnigen2/taylorseer_utils) | (cd "$STAGE/app" && tar xf -)
 cp "$REPO/LICENSE" "$STAGE/LICENSE"
 cp "$HERE/README.txt" "$STAGE/README.txt"
+cp -R "$WEIGHTS" "$STAGE/w"
 if [ "$PLATFORM" = win-64 ]; then
   cp "$UNPACK" "$STAGE/pixi-unpack.exe"; cp "$HERE/omnigen2-editscore.cmd" "$STAGE/"
 else
