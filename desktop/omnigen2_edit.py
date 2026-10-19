@@ -21,6 +21,8 @@ sys.path.insert(0, str(HERE))
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+# Triton kernels compile C at run time and need a compiler and CUDA headers; the package has neither.
+os.environ.setdefault("TORCH_DISABLE_NATIVE_JIT", "1")
 
 
 def default_weights() -> Path:
@@ -64,6 +66,9 @@ def load(weights: Path, device, use_lora: bool = True):
     import torch
     from diffusers import AutoencoderKL
     from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor
+
+    import omnigen2.utils.import_utils as iu
+    iu._triton_available = False
     from omnigen2.models.transformers.transformer_omnigen2 import OmniGen2Transformer2DModel
     from omnigen2.pipelines.omnigen2.pipeline_omnigen2 import OmniGen2Pipeline
     from omnigen2.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
@@ -71,7 +76,7 @@ def load(weights: Path, device, use_lora: bool = True):
     base = weights / "base"
     lora = weights / "lora" / "pytorch_lora_weights.safetensors"
     if not (base / "model_index.json").is_file():
-        sys.exit(f"Weights not found: {base}/model_index.json. Unpack the weights archive into {weights}.")
+        sys.exit(f"Weights not found: {base}/model_index.json. Get them with --download-weights.")
     dtype = torch.bfloat16
     t0 = time.time()
     # The two custom components come from the bundled omnigen2 package, never from Python files
