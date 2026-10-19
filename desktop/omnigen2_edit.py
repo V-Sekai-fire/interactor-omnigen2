@@ -47,8 +47,11 @@ def pick_device(name: str):
 
 def load(weights: Path, device, use_lora: bool = True):
     import torch
+    from diffusers import AutoencoderKL
+    from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor
     from omnigen2.models.transformers.transformer_omnigen2 import OmniGen2Transformer2DModel
     from omnigen2.pipelines.omnigen2.pipeline_omnigen2 import OmniGen2Pipeline
+    from omnigen2.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 
     base = weights / "base"
     lora = weights / "lora" / "pytorch_lora_weights.safetensors"
@@ -56,12 +59,21 @@ def load(weights: Path, device, use_lora: bool = True):
         sys.exit(f"Weights not found: {base}/model_index.json. Unpack the weights archive into {weights}.")
     dtype = torch.bfloat16
     t0 = time.time()
-    pipe = OmniGen2Pipeline.from_pretrained(str(base), torch_dtype=dtype, trust_remote_code=True)
-    pipe.transformer = OmniGen2Transformer2DModel.from_pretrained(str(base), subfolder="transformer", torch_dtype=dtype)
+    # The two custom components come from the bundled omnigen2 package, never from Python files
+    # inside the weights folder (no trust_remote_code), so the weights folder runs no code.
+    transformer = OmniGen2Transformer2DModel.from_pretrained(str(base), subfolder="transformer", torch_dtype=dtype)
+    scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(str(base), subfolder="scheduler")
+    pipe = OmniGen2Pipeline(
+        transformer=transformer,
+        vae=AutoencoderKL.from_pretrained(str(base), subfolder="vae", torch_dtype=dtype),
+        scheduler=scheduler,
+        mllm=Qwen2_5_VLForConditionalGeneration.from_pretrained(str(base), subfolder="mllm", torch_dtype=dtype),
+        processor=Qwen2_5_VLProcessor.from_pretrained(str(base), subfolder="processor"),
+    )
     if use_lora:
         if not lora.is_file():
             sys.exit(f"LoRA not found: {lora}")
-        pipe.load_lora_weights(str(lora))
+        pipe.load_lora_weights(str(lora.parent), weight_name=lora.name)
     pipe = pipe.to(device)
     print(f"LOADED device={device} lora={use_lora} seconds={time.time() - t0:.1f}", flush=True)
     return pipe

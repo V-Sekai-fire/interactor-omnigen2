@@ -2,9 +2,8 @@
 # Start OmniGen2 + EditScore7B-v1.1. The first start unpacks the Python environment into ./env.
 set -e
 D=$(cd "$(dirname "$0")" && pwd)
-cd "$D"
-if [ ! -x env/bin/python ]; then
+if [ ! -x "$D/env/bin/python" ]; then
   echo "First start: unpacking the environment (one time, about 1 minute)..."
-  ./pixi-unpack environment.tar --output-directory "$D" --env-name env
+  "$D/pixi-unpack" "$D/environment.tar" --output-directory "$D" --env-name env
 fi
-exec env/bin/python app/omnigen2_edit.py "$@"
+exec "$D/env/bin/python" "$D/app/omnigen2_edit.py" "$@"
