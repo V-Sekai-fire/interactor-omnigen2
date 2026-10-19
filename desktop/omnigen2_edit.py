@@ -140,7 +140,39 @@ def run_ui(pipe, device, port):
         btn = gr.Button("Edit", variant="primary")
         info = gr.Markdown()
         btn.click(go, [src, prompt, steps, seed], [dst, info])
-    demo.queue(max_size=4).launch(server_name="127.0.0.1", server_port=port, inbrowser=True, share=False)
+    demo.queue(max_size=4)
+    serve_offline(demo, port)
+
+
+def serve_offline(demo, port):
+    """Serve the page on 127.0.0.1 only, with every script tag that loads from another computer removed
+    (Gradio's page template loads an iframe helper from a CDN)."""
+    import re
+    import threading
+    import webbrowser
+
+    import gradio as gr
+    import uvicorn
+    from fastapi import FastAPI, Request
+    from fastapi.responses import Response
+
+    remote_script = re.compile(rb'<script[^>]*\bsrc="https?://[^"]*"[^>]*>\s*</script>')
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def strip_remote_scripts(request: Request, call_next):
+        resp = await call_next(request)
+        if not resp.headers.get("content-type", "").startswith("text/html"):
+            return resp
+        body = remote_script.sub(b"", b"".join([c async for c in resp.body_iterator]))
+        headers = {k: v for k, v in resp.headers.items() if k.lower() != "content-length"}
+        return Response(body, status_code=resp.status_code, headers=headers)
+
+    app = gr.mount_gradio_app(app, demo, path="/")
+    url = f"http://127.0.0.1:{port}/"
+    threading.Timer(2.0, lambda: webbrowser.open(url)).start()
+    print(f"PAGE {url}", flush=True)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 def main():
